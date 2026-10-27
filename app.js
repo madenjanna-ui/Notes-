@@ -1,6 +1,7 @@
 (() => {
   "use strict";
   const KEY = "notes_at_data_v1";
+  const FONT_KEY = "notes_at_font_scale_v1";
   const COLORS = ["#35b7ff","#8a75ff","#c16bff","#f05d9b","#ff766d","#ff9f43","#e8c94e","#32c8a2","#28a9c7","#4788ff","#a36be8","#7f91b5"];
   const $ = id => document.getElementById(id);
   const els = {
@@ -9,9 +10,23 @@
     sections: $("sectionsList"), addNote: $("newNoteBtn"), addSection: $("addSectionBtn"),
     addFirst: $("addFirstSectionBtn"), deleteNote: $("deleteNoteBtn"), back: $("backBtn"),
     backup: $("backupBtn"), restore: $("restoreBtn"), restoreInput: $("restoreInput"),
+    fontDown: $("fontDownBtn"), fontUp: $("fontUpBtn"),
     status: $("saveStatus"), toast: $("toast")
   };
   let state = loadState(), currentId = null, searchTerm = "", saveTimer = null, toastTimer = null;
+  let fontScale = 1;
+  try { fontScale = Math.min(1.5, Math.max(0.85, Number(localStorage.getItem(FONT_KEY)) || 1)); } catch(e) {}
+  function applyFontScale() {
+    document.documentElement.style.setProperty("--font-scale", String(fontScale));
+    if (els.fontDown) els.fontDown.disabled = fontScale <= 0.85;
+    if (els.fontUp) els.fontUp.disabled = fontScale >= 1.5;
+  }
+  function changeFontScale(delta) {
+    fontScale = Math.round(Math.min(1.5, Math.max(0.85, fontScale + delta)) * 100) / 100;
+    try { localStorage.setItem(FONT_KEY, String(fontScale)); } catch(e) {}
+    applyFontScale();
+    showToast("Размер текста: " + Math.round(fontScale * 100) + "%");
+  }
   function uid(){return Date.now().toString(36)+Math.random().toString(36).slice(2,8)}
   function freshNote(){const now=new Date().toISOString();return {id:uid(),title:"",description:"",sections:[],createdAt:now,updatedAt:now}}
   function loadState(){
@@ -47,9 +62,9 @@
     els.sections.innerHTML=n.sections.map(s=>`<article class="section-card" style="--section-color:${s.color}" data-section="${s.id}">
       <div class="section-head">
         <button class="section-toggle" data-action="toggle" aria-expanded="${!s.collapsed}"><span class="section-chevron">${s.collapsed?"⌄":"⌃"}</span><span class="section-heading-text">${esc(s.title||"Без названия")}</span></button>
-        <div class="section-actions"><button class="section-action" data-action="settings" title="Название и цвет" aria-label="Настройки раздела">•••</button><button class="section-action" data-action="delete" title="Удалить раздел" aria-label="Удалить раздел">×</button></div>
+        <div class="section-actions"><button class="section-action" data-action="settings" title="Название и цвет" aria-label="Настройки раздела">•••</button><button class="section-action expand-section-button" data-action="expand" title="Развернуть на весь экран" aria-label="Развернуть раздел">⤢</button><button class="section-action" data-action="delete" title="Удалить раздел" aria-label="Удалить раздел">×</button></div>
       </div>
-      ${s.collapsed?"":`<div class="section-body"><textarea data-field="text" placeholder="Запиши здесь свои мысли…" aria-label="Текст раздела">${esc(s.text)}</textarea><div class="section-footer"><span>${s.text.length} символов</span><button class="section-action" data-action="settings">Изменить цвет и заголовок</button></div></div>`}
+      ${s.collapsed?"":`<div class="section-body"><textarea data-field="text" placeholder="Запиши здесь свои мысли…" aria-label="Текст раздела">${esc(s.text)}</textarea><div class="section-footer"><span>${s.text.length} символов</span><button class="section-action edit-section-button" data-action="settings" title="Изменить заголовок и цвет" aria-label="Изменить заголовок и цвет">✎</button></div></div>`}
       ${s.settings?`<div class="section-settings"><label class="settings-label">Заголовок раздела<input class="section-edit-title" data-field="title" value="${esc(s.title)}" placeholder="Название раздела" maxlength="100"></label><span class="settings-label">Цвет заголовка</span><div class="color-picker">${COLORS.map(c=>`<button class="color-dot ${s.color===c?"selected":""}" style="background:${c}" data-action="color" data-color="${c}" aria-label="Выбрать цвет ${c}" title="${c}"></button>`).join("")}</div><div><button class="section-action" data-action="close-settings">Готово</button></div></div>`:""}
     </article>`).join("");
     els.addFirst.classList.toggle("hidden",n.sections.length>0);
@@ -80,16 +95,31 @@
     switch(btn.dataset.action){
       case "toggle":s.collapsed=!s.collapsed;renderSections();persist();break;
       case "settings":s.settings=!s.settings;renderSections();break;
+      case "expand":{
+        const expanded = card.classList.contains("section-expanded");
+        document.querySelectorAll(".section-expanded").forEach(el=>el.classList.remove("section-expanded"));
+        if(!expanded) card.classList.add("section-expanded");
+        const expandBtn = card.querySelector('[data-action="expand"]');
+        if(expandBtn){
+          expandBtn.textContent = expanded ? "⤢" : "⤡";
+          expandBtn.title = expanded ? "Развернуть на весь экран" : "Свернуть до обычного размера";
+          expandBtn.setAttribute("aria-label", expanded ? "Развернуть раздел" : "Свернуть раздел");
+        }
+        break;
+      }
       case "close-settings":s.settings=false;renderSections();markChanged();break;
       case "color":s.color=btn.dataset.color;renderSections();markChanged();break;
       case "delete":if(confirm(`Удалить раздел «${s.title||"Без названия"}»?`)){n.sections=n.sections.filter(x=>x.id!==s.id);renderSections();markChanged()}break;
     }
   });
   els.backup.addEventListener("click",downloadBackup);
+  els.fontDown.addEventListener("click",()=>changeFontScale(-0.1));
+  els.fontUp.addEventListener("click",()=>changeFontScale(0.1));
   els.restore.addEventListener("click",()=>els.restoreInput.click());
   els.restoreInput.addEventListener("change",()=>{importBackup(els.restoreInput.files[0]);els.restoreInput.value=""});
   window.addEventListener("beforeunload",()=>{if(saveTimer){clearTimeout(saveTimer);try{localStorage.setItem(KEY,JSON.stringify(state))}catch(e){}}});
   if("serviceWorker" in navigator && location.protocol!=="file:"){window.addEventListener("load",()=>navigator.serviceWorker.register("./sw.js").catch(()=>{}))}
+  applyFontScale();
   renderList();
   if(state.notes.length)openNote(state.notes.slice().sort((a,b)=>b.updatedAt.localeCompare(a.updatedAt))[0].id);
 })();
